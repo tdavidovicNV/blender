@@ -247,5 +247,10 @@ if(WITH_GTESTS)
   set(TEST_LIB
     bf_blenloader_test_util
   )
+  if(WITH_HYDRA)
+    list(APPEND TEST_SRC tests/hydra_mesh_test.cc)
+    list(APPEND TEST_LIB PRIVATE bf::functions PRIVATE bf::geometry)
+  endif()
+
   blender_add_test_suite_lib(io_usd "${TEST_SRC}" "${INC};${TEST_INC}" "${INC_SYS}" "${LIB};${TEST_LIB}")
 endif()
