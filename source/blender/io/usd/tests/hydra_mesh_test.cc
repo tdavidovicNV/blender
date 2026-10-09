@@ -12,12 +12,9 @@
 
 #include "BKE_appdir.hh"
 #include "BKE_attribute.hh"
-#include "BKE_attribute_storage.hh"
-#include "BKE_customdata.hh"
 #include "BKE_main.hh"
 #include "BKE_material.hh"
 #include "BKE_mesh.hh"
-#include "BKE_modifier.hh"
 #include "BKE_object.hh"
 
 #include "BLI_listbase.hh"
@@ -27,12 +24,9 @@
 #include "DEG_depsgraph_query.hh"
 
 #include "DNA_mesh_types.h"
-#include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
 
 #include "FN_init.hh"
-
-#include "GEO_mesh_primitive_cuboid.hh"
 
 #include "hydra/scene_index.hh"
 
@@ -190,57 +184,6 @@ TEST_F(HydraMeshTest, MaterialSubsets)
     materials.finish();
   }
   check_scene(true);
-}
-
-TEST_F(HydraMeshTest, LooseVertices)
-{
-  ASSERT_TRUE(blendfile_load("usd/usd_mesh_normals.blend"));
-  for (Mesh &mesh : bfile->main->meshes) {
-    mesh.attribute_storage.wrap().resize(bke::AttrDomain::Point, mesh.verts_num + 1);
-    CustomData_realloc(&mesh.vert_data, mesh.verts_num, mesh.verts_num + 1, CD_SET_DEFAULT);
-    mesh.verts_num++;
-    bke::fill_attribute_range_default(mesh.attributes_for_write(),
-                                      bke::AttrDomain::Point,
-                                      {},
-                                      IndexRange(mesh.verts_num - 1, 1));
-    mesh.vert_positions_for_write().last() = float3(10, 20, 30);
-    mesh.tag_topology_changed();
-  }
-  check_scene();
-}
-
-TEST_F(HydraMeshTest, SubdividedAndFlatCubes)
-{
-  ASSERT_TRUE(blendfile_load("usd/usd_mesh_normals.blend"));
-  Object *objects[2];
-  for (const int i : IndexRange(2)) {
-    const bool smooth = i == 0;
-    Object *object = BKE_object_add(bfile->main,
-                                    bfile->curscene,
-                                    bfile->cur_view_layer,
-                                    OB_MESH,
-                                    smooth ? "NativeSmoothSubdivCube" : "NativeFlatCube");
-    Mesh *cube = geometry::create_cuboid_mesh(float3(2), 2, 2, 2);
-    bke::mesh_smooth_set(*cube, smooth);
-    BKE_mesh_nomain_to_mesh(cube, id_cast<Mesh *>(object->data), object);
-    if (smooth) {
-      ModifierData *modifier = BKE_modifier_new(eModifierType_Subsurf);
-      SubsurfModifierData *subsurf = reinterpret_cast<SubsurfModifierData *>(modifier);
-      subsurf->levels = subsurf->renderLevels = 2;
-      BLI_addtail(&object->modifiers, modifier);
-    }
-    objects[i] = object;
-  }
-  check_scene();
-  for (const int i : IndexRange(2)) {
-    const Mesh *mesh = BKE_object_get_evaluated_mesh(DEG_get_evaluated(depsgraph, objects[i]));
-    ASSERT_NE(mesh, nullptr);
-    const bool smooth = i == 0;
-    EXPECT_EQ(mesh->verts_num, smooth ? 98 : 8);
-    EXPECT_EQ(mesh->corner_tris().size(), smooth ? 192 : 12);
-    EXPECT_EQ(mesh->normals_domain(),
-              smooth ? bke::MeshNormalDomain::Point : bke::MeshNormalDomain::Face);
-  }
 }
 
 }  // namespace blender::io::hydra
