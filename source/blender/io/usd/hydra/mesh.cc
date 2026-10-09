@@ -42,6 +42,7 @@ struct SubMesh {
   pxr::VtIntArray face_vertex_indices;
   pxr::VtVec3fArray points;
   pxr::VtVec3fArray normals;
+  pxr::TfToken normals_interpolation;
   pxr::VtVec2fArray uvs;
   int mat_index = 0;
 };
@@ -104,27 +105,29 @@ static void copy_submesh(const Mesh &mesh,
   resize_uninitialized(sm.face_vertex_counts, triangles.size());
   std::fill(sm.face_vertex_counts.begin(), sm.face_vertex_counts.end(), 3);
 
-  /* Per-corner normals. */
-  resize_uninitialized(sm.normals, triangles.size() * 3);
   switch (normals_domain) {
     case bke::MeshNormalDomain::Face:
+      BLI_assert(face_normals.size() == mesh.faces_num);
+      sm.normals_interpolation = pxr::HdPrimvarSchemaTokens->uniform;
+      resize_uninitialized(sm.normals, triangles.size());
       triangles.foreach_index([&](const int src, const int dst) {
         const float3 &n = face_normals[tri_faces[src]];
-        for (int c = 0; c < 3; c++) {
-          sm.normals[dst * 3 + c] = pxr::GfVec3f(n.x, n.y, n.z);
-        }
+        sm.normals[dst] = pxr::GfVec3f(n.x, n.y, n.z);
       });
       break;
     case bke::MeshNormalDomain::Point:
-      triangles.foreach_index([&](const int src, const int dst) {
-        const int3 &tri = corner_tris[src];
-        for (int c = 0; c < 3; c++) {
-          const float3 &n = vert_normals[corner_verts[tri[c]]];
-          sm.normals[dst * 3 + c] = pxr::GfVec3f(n.x, n.y, n.z);
-        }
-      });
+      BLI_assert(vert_normals.size() == mesh.verts_num);
+      sm.normals_interpolation = pxr::HdPrimvarSchemaTokens->vertex;
+      resize_uninitialized(sm.normals, dst_verts_num);
+      for (const int i : IndexRange(dst_verts_num)) {
+        const float3 &n = vert_normals[copy_all_verts ? i : verts[i]];
+        sm.normals[i] = pxr::GfVec3f(n.x, n.y, n.z);
+      }
       break;
     case bke::MeshNormalDomain::Corner:
+      BLI_assert(corner_normals.size() == mesh.corners_num);
+      sm.normals_interpolation = pxr::HdPrimvarSchemaTokens->faceVarying;
+      resize_uninitialized(sm.normals, triangles.size() * 3);
       triangles.foreach_index([&](const int src, const int dst) {
         const int3 &tri = corner_tris[src];
         for (int c = 0; c < 3; c++) {
@@ -269,8 +272,8 @@ static EmittedGeometryPrim build_submesh_geometry(const SubMesh &sm,
         pxr::HdPrimvarSchema::Builder()
             .SetPrimvarValue(
                 pxr::HdRetainedTypedSampledDataSource<pxr::VtVec3fArray>::New(sm.normals))
-            .SetInterpolation(pxr::HdPrimvarSchema::BuildInterpolationDataSource(
-                pxr::HdPrimvarSchemaTokens->faceVarying))
+            .SetInterpolation(
+                pxr::HdPrimvarSchema::BuildInterpolationDataSource(sm.normals_interpolation))
             .SetRole(pxr::HdPrimvarSchema::BuildRoleDataSource(pxr::HdPrimvarSchemaTokens->normal))
             .Build());
   }
